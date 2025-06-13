@@ -42,7 +42,21 @@ async function openLinksOnce(links, proxies, round) {
       }
 
       try {
-        await page.goto(link, { waitUntil: 'networkidle2', timeout: 30000 });
+        await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+// Tunggu tambahan untuk redirect
+await page.waitForTimeout(10000);
+
+// Coba klik tombol jika ada (optional)
+try {
+  await page.waitForSelector('.btn-continue, #continueBtn, .skip-ad', { timeout: 5000 });
+  await page.click('.btn-continue, #continueBtn, .skip-ad');
+  console.log('🖱️ Tombol diklik, menunggu redirect...');
+  await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
+} catch (err) {
+  console.log('⚠️ Tidak perlu klik atau tidak ditemukan tombol.');
+}
+
         console.log(`✅ Berhasil buka: ${link} dengan proxy: ${proxy}`);
         success = true;
         await browser.close();
