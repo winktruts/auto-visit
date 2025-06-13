@@ -2,6 +2,7 @@ const fs = require('fs');
 const puppeteer = require('puppeteer');
 const readline = require('readline');
 
+// Baca file
 function readLines(filename) {
   return fs.readFileSync(filename, 'utf-8')
            .split('\n')
@@ -9,10 +10,12 @@ function readLines(filename) {
            .filter(Boolean);
 }
 
+// Delay
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Fungsi utama visit link dengan semua proxy sampai berhasil
 async function openLinksOnce(links, proxies, round) {
   console.log(`\n🚀 Visit ke-${round + 1} dimulai...`);
 
@@ -33,7 +36,7 @@ async function openLinksOnce(links, proxies, round) {
 
       const page = await browser.newPage();
 
-      // Autentikasi proxy jika ada username:password
+      // Autentikasi proxy jika perlu
       if (proxy.includes('@')) {
         const [auth, host] = proxy.split('@');
         const [protocol, creds] = auth.split('//');
@@ -42,43 +45,54 @@ async function openLinksOnce(links, proxies, round) {
       }
 
       try {
+        // Atur User-Agent agar tidak terdeteksi bot
+        await page.setUserAgent(
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36'
+        );
+
         await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-// Tunggu tambahan untuk redirect
-await page.waitForTimeout(10000);
+        // Tunggu timer atau redirect otomatis
+        await page.waitForTimeout(8000);
 
-// Coba klik tombol jika ada (optional)
-try {
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
-  await page.waitForSelector('.btn-continue, #continueBtn, .skip-ad', { timeout: 5000 });
-  await page.click('.btn-continue, #continueBtn, .skip-ad');
-  console.log('🖱️ Tombol diklik, menunggu redirect...');
-  await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
-} catch (err) {
-  console.log('⚠️ Tidak perlu klik atau tidak ditemukan tombol.');
-}
+        // Coba klik tombol jika ada (Get Link, Continue, dll)
+        try {
+          await page.waitForSelector(
+            'a[href^="http"], .btn, .get-link, #skip_button',
+            { timeout: 10000 }
+          );
+          await page.click(
+            'a[href^="http"], .btn, .get-link, #skip_button'
+          );
+          console.log('🖱️ Tombol lanjut diklik, menunggu redirect...');
+          await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
+        } catch (err) {
+          console.log('⚠️ Tidak ditemukan tombol lanjut atau tidak perlu klik');
+        }
+
+        await page.waitForTimeout(3000); // tunggu sebentar setelah redirect
 
         console.log(`✅ Berhasil buka: ${link} dengan proxy: ${proxy}`);
         success = true;
         await browser.close();
-        break; // Berhasil, keluar dari loop proxy
+        break;
       } catch (err) {
         console.error(`❌ Gagal dengan proxy ${proxy}: ${err.message}`);
         await browser.close();
       }
 
-      await sleep(1000); // Delay kecil antar percobaan proxy
+      await sleep(1000); // delay antar proxy
     }
 
     if (!success) {
       console.error(`❌ Semua proxy gagal membuka: ${link}`);
     }
 
-    await sleep(2000); // Delay antar link
+    await sleep(2000); // delay antar link
   }
 }
 
-
+// Menu utama
 async function main() {
   const links = readLines('links.txt');
   const proxies = readLines('proxies.txt');
@@ -93,8 +107,7 @@ async function main() {
     output: process.stdout
   });
 
-  // Prompts untuk jumlah visit dan interval
-  rl.question('🌀 Berapa kali kunjungan (visit) diulang? ', async (visitCountInput) => {
+  rl.question('🌀 Berapa kali kunjungan (visit) diulang? ', (visitCountInput) => {
     const visitCount = parseInt(visitCountInput);
     if (isNaN(visitCount) || visitCount <= 0) {
       console.log('Jumlah kunjungan harus berupa angka > 0');
