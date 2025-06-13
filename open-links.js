@@ -16,43 +16,53 @@ function sleep(ms) {
 async function openLinksOnce(links, proxies, round) {
   console.log(`\n🚀 Visit ke-${round + 1} dimulai...`);
 
-  for (let i = 0; i < links.length; i++) {
-    const link = links[i];
-    const proxy = proxies[i % proxies.length]; // gilir proxy
+  for (const link of links) {
+    let success = false;
 
-    console.log(`🔗 Membuka ${link} via proxy: ${proxy}`);
+    for (const proxy of proxies) {
+      console.log(`🔗 Mencoba buka ${link} via proxy: ${proxy}`);
 
-   const browser = await puppeteer.launch({
-  headless: true,
-  args: [
-    `--proxy-server=${proxy}`,
-    '--no-sandbox',
-    '--disable-setuid-sandbox'
-  ]
-});
+      const browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          `--proxy-server=${proxy}`,
+          '--no-sandbox',
+          '--disable-setuid-sandbox'
+        ]
+      });
 
+      const page = await browser.newPage();
 
-    const page = await browser.newPage();
+      // Autentikasi proxy jika ada username:password
+      if (proxy.includes('@')) {
+        const [auth, host] = proxy.split('@');
+        const [protocol, creds] = auth.split('//');
+        const [username, password] = creds.split(':');
+        await page.authenticate({ username, password });
+      }
 
-    // Autentikasi proxy jika perlu
-    if (proxy.includes('@')) {
-      const [auth, host] = proxy.split('@');
-      const [protocol, creds] = auth.split('//');
-      const [username, password] = creds.split(':');
-      await page.authenticate({ username, password });
+      try {
+        await page.goto(link, { waitUntil: 'networkidle2', timeout: 30000 });
+        console.log(`✅ Berhasil buka: ${link} dengan proxy: ${proxy}`);
+        success = true;
+        await browser.close();
+        break; // Berhasil, keluar dari loop proxy
+      } catch (err) {
+        console.error(`❌ Gagal dengan proxy ${proxy}: ${err.message}`);
+        await browser.close();
+      }
+
+      await sleep(1000); // Delay kecil antar percobaan proxy
     }
 
-    try {
-      await page.goto(link, { waitUntil: 'networkidle2', timeout: 30000 });
-      console.log(`✅ Sukses buka: ${link}`);
-    } catch (err) {
-      console.error(`❌ Gagal buka ${link}: ${err.message}`);
+    if (!success) {
+      console.error(`❌ Semua proxy gagal membuka: ${link}`);
     }
 
-    await browser.close();
-    await sleep(2000); // delay antar kunjungan
+    await sleep(2000); // Delay antar link
   }
 }
+
 
 async function main() {
   const links = readLines('links.txt');
