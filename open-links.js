@@ -22,10 +22,15 @@ async function openLinksOnce(links, proxies, round) {
 
     console.log(`🔗 Membuka ${link} via proxy: ${proxy}`);
 
-    const browser = await puppeteer.launch({
-      headless: true, // false jika ingin lihat browser
-      args: [`--proxy-server=${proxy}`]
-    });
+   const browser = await puppeteer.launch({
+  headless: true,
+  args: [
+    `--proxy-server=${proxy}`,
+    '--no-sandbox',
+    '--disable-setuid-sandbox'
+  ]
+});
+
 
     const page = await browser.newPage();
 
