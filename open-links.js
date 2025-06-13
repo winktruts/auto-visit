@@ -49,6 +49,7 @@ await page.waitForTimeout(10000);
 
 // Coba klik tombol jika ada (optional)
 try {
+  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36');
   await page.waitForSelector('.btn-continue, #continueBtn, .skip-ad', { timeout: 5000 });
   await page.click('.btn-continue, #continueBtn, .skip-ad');
   console.log('🖱️ Tombol diklik, menunggu redirect...');
