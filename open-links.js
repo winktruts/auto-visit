@@ -1,137 +1,103 @@
+// 📦 Install dependencies before running:
+// npm install puppeteer-extra puppeteer-extra-plugin-stealth
+// npm install readline fs
+
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs');
-const puppeteer = require('puppeteer');
 const readline = require('readline');
+const path = require('path');
+const util = require('util');
 
-function readLines(file) {
-  return fs.readFileSync(file, 'utf8')
-    .split('\n')
-    .map(l => l.trim())
-    .filter(Boolean);
-}
+puppeteer.use(StealthPlugin());
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const MAX_RETRY_PER_LINK = 5;
+const WAIT_TIME = 15000; // 15 detik untuk load + klik iklan
+const VISIT_INTERVAL = 5 * 60 * 1000; // 5 menit dalam ms
 
-function fixProxyProtocol(proxy) {
-  try {
-    const url = new URL(proxy);
-    if (url.hostname.includes('webshare.io') && url.port === '80') {
-      return 'http://' + proxy.split('://')[1];
+// Baca file
+const loadList = async (filename) => {
+    const filePath = path.resolve(__dirname, filename);
+    const lines = await fs.promises.readFile(filePath, 'utf-8');
+    return lines.split('\n').map(l => l.trim()).filter(Boolean);
+};
+
+// Cek IP proxy (untuk tahu geolokasi)
+const checkIP = async (page) => {
+    try {
+        await page.goto('https://ipapi.co/json/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+        const content = await page.evaluate(() => document.body.innerText);
+        const ipInfo = JSON.parse(content);
+        return `${ipInfo.ip} - ${ipInfo.country_name}`;
+    } catch (err) {
+        return 'Gagal mendeteksi IP';
     }
-  } catch {}
-  return proxy;
-}
+};
 
-async function openWithProxy(link, proxy) {
-  proxy = fixProxyProtocol(proxy);
-  console.log(`🔗 Mencoba buka ${link} via proxy: ${proxy}`);
+// Visit satu link dengan satu proxy
+const visitWithProxy = async (url, proxy, visitNumber) => {
+    console.log(`\n🚀 Visit ke-${visitNumber} dimulai...`);
+    console.log(`🔗 Mencoba buka ${url} via proxy: ${proxy}`);
 
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        `--proxy-server=${proxy}`,
-        '--no-sandbox',
-        '--disable-setuid-sandbox'
-      ]
+    const browser = await puppeteer.launch({
+        headless: false,
+        args: [
+            `--proxy-server=${proxy}`,
+            '--no-sandbox',
+            '--disable-setuid-sandbox'
+        ],
+        defaultViewport: null,
+        timeout: 0
     });
-
-    const page = await browser.newPage();
-
-    // Proxy auth jika ada
-    if (proxy.includes('@')) {
-      const [authPart] = proxy.split('@');
-      const [, creds] = authPart.split('//');
-      const [user, pass] = creds.split(':');
-      await page.authenticate({ username: user, password: pass });
-    }
-
-    if (!page.waitForTimeout) {
-      page.waitForTimeout = ms => new Promise(res => setTimeout(res, ms));
-    }
-
-    await page.setUserAgent('Mozilla/5.0 Chrome/120 Safari/537.36');
-
-    await page.goto(link, { waitUntil: 'domcontentloaded', timeout: 60000 });
-
-    await sleep(8000); // nunggu shortlink
 
     try {
-      await page.waitForSelector('a[href^="http"], .btn, .get-link, #skip_button', { timeout: 10000 });
-      await page.click('a[href^="http"], .btn, .get-link, #skip_button');
-      console.log('🖱️ Tombol lanjut diklik, menunggu redirect...');
-      await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 });
-    } catch {
-      console.log('ℹ️ Tidak ditemukan tombol lanjut, mungkin tidak perlu.');
+        const page = await browser.newPage();
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+
+        // Deteksi lokasi IP
+        const ipData = await checkIP(page);
+        console.log(`🌍 IP Info: ${ipData}`);
+
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+        await page.waitForTimeout(WAIT_TIME); // Tunggu halaman dan script iklan
+        await page.mouse.move(100, 100); // Simulasi user
+        await page.keyboard.press('ArrowDown');
+
+        console.log(`✅ Berhasil membuka link`);
+        await browser.close();
+        return true;
+    } catch (err) {
+        console.log(`❌ Gagal dengan proxy ${proxy}: ${err.message}`);
+        await browser.close();
+        return false;
     }
+};
 
-    console.log(`✅ Berhasil buka: ${link} dengan proxy: ${proxy}`);
-    await browser.close();
-    return true;
-  } catch (err) {
-    console.log(`❌ Gagal dengan proxy ${proxy}: ${err.message}`);
-    if (browser) await browser.close();
-    return false;
-  }
-}
+// Main Loop
+(async () => {
+    const links = await loadList('links.txt');
+    const proxies = await loadList('proxies.txt');
+    const totalVisits = 3;
 
-async function openLinksOnce(links, proxies, round) {
-  console.log(`\n🚀 Visit ke-${round + 1} dimulai...`);
-  for (const link of links) {
-    let success = false;
-    for (const proxy of proxies) {
-      const ok = await openWithProxy(link, proxy);
-      if (ok) {
-        success = true;
-        break;
-      } else {
-        console.log(`❌ Proxy mati: ${proxy}`);
-      }
-    }
-    if (!success) {
-      console.log(`⛔ Semua proxy gagal untuk: ${link}`);
-    }
-    await sleep(2000);
-  }
-}
+    for (let i = 1; i <= totalVisits; i++) {
+        for (const link of links) {
+            let success = false;
 
-async function main() {
-  const links = readLines('links.txt');
-  const proxies = readLines('proxies.txt');
+            for (const proxy of proxies) {
+                success = await visitWithProxy(link, proxy, i);
+                if (success) break;
+                else console.log(`❌ Proxy mati: ${proxy}`);
+            }
 
-  if (!links.length || !proxies.length) {
-    console.error('❗ File links.txt atau proxies.txt kosong.');
-    return;
-  }
-
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-
-  rl.question('🔁 Ulangi berapa kali visit? ', (visitCountStr) => {
-    const visitCount = parseInt(visitCountStr);
-    if (isNaN(visitCount) || visitCount <= 0) {
-      console.log('Jumlah harus angka > 0');
-      rl.close();
-      return;
-    }
-
-    rl.question('⏱️ Jeda antar visit (menit, default 5)? ', async (delayStr) => {
-      const delay = parseInt(delayStr) || 5;
-      const delayMs = delay * 60 * 1000;
-      rl.close();
-
-      for (let i = 0; i < visitCount; i++) {
-        await openLinksOnce(links, proxies, i);
-        if (i < visitCount - 1) {
-          console.log(`⏳ Tunggu ${delay} menit sebelum visit berikutnya...\n`);
-          await sleep(delayMs);
+            if (!success) {
+                console.log(`❌ Gagal mengunjungi link: ${link}`);
+            }
         }
-      }
+        console.log(`⏳ Menunggu 5 menit untuk visit selanjutnya...`);
+        if (i < totalVisits) await delay(VISIT_INTERVAL);
+    }
 
-      console.log(`🏁 Selesai! Total visit: ${visitCount} kali.`);
-    });
-  });
-}
-
-main();
+    console.log('✅ Semua kunjungan selesai.');
+})();
